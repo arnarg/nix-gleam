@@ -41,6 +41,12 @@ In `flake.nix`:
         # But this can be overwritten here too:
         # pname = "my-app";
         # version = "1.2.3";
+
+        # The target is read from the `gleam.toml` file too.
+        # Default is "erlang" if nothing is specified but
+        # this can also be overwritten here too:
+        # target = "javascript";
+
         src = ./.;
       };
     })

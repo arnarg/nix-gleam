@@ -8,6 +8,7 @@
   elixir,
   beamPackages,
   rsync,
+  nodejs,
 }: let
   inherit (builtins) fromTOML readFile;
 in {
@@ -22,6 +23,9 @@ in {
     # manifest.toml contains a list of required packages including a sha256 checksum
     # that can be used by nix fetchHex fetcher.
     manifestToml = fromTOML (readFile (src + "/manifest.toml"));
+
+    # Specify which target to build for.
+    buildTarget = attrs.target or gleamToml.target or "erlang";
 
     # Generates a packages.toml expected by gleam compiler.
     packagesTOML = with lib;
@@ -50,22 +54,16 @@ in {
     isElixirProject = with lib; p: any (t: t == "mix") p.build_tools;
     needsElixir = with lib; any isElixirProject manifestToml.packages;
 
-    # Handier reference to hex.
-    hexpm = beamPackages.hex;
+    # nativeBuildInputs needed for both targets.
+    defaultNativeBuildInputs = [gleam beamPackages.hex rsync];
   in
+    # Base common mkDerivation attributes
     stdenv.mkDerivation (attrs
       // {
         pname = attrs.pname or gleamToml.name;
         version = attrs.version or gleamToml.version;
 
         src = lib.cleanSource attrs.src;
-
-        nativeBuildInputs =
-          [gleam rebar3 hexpm rsync]
-          ++ (lib.optional needsElixir [elixir])
-          ++ nativeBuildInputs;
-
-        buildInputs = [erlang];
 
         # Here we must copy the dependencies into the right spot and
         # create a packages.toml file so the gleam compiler does not
@@ -95,6 +93,14 @@ in {
 
             runHook postConfigure
           '';
+      }
+      # When the build target is erlang
+      // lib.optionalAttrs (buildTarget == "erlang") {
+        nativeBuildInputs =
+          defaultNativeBuildInputs
+          ++ [erlang rebar3]
+          ++ (lib.optional needsElixir [elixir])
+          ++ nativeBuildInputs;
 
         # The gleam compiler has a nice export function for erlang shipment.
         buildPhase =
@@ -125,6 +131,46 @@ in {
               -eval "${gleamToml.name}@@main:run(${gleamToml.name})" \
               -noshell \
               -extra "\$@"
+            EOF
+            chmod +x $out/bin/${gleamToml.name}
+
+            runHook postInstall
+          '';
+      }
+      # When the build target is javascript
+      // lib.optionalAttrs (buildTarget == "javascript") {
+        nativeBuildInputs = defaultNativeBuildInputs ++ nativeBuildInputs;
+
+        # The gleam compiler doesn't provide an export mechanism for javascript target.
+        buildPhase =
+          attrs.buildPhase
+          or ''
+            runHook prebuild
+
+            gleam build --target javascript
+
+            runHook postBuild
+          '';
+
+        # Install all built packages into lib and create an entrypoint script
+        # that starts the application.
+        installPhase =
+          attrs.installPhase
+          or ''
+            runHook preInstall
+
+            mkdir -p $out/{bin,lib}
+
+            rsync --exclude=gleam.lock --exclude=gleam_version -r build/dev/javascript/* $out/lib/
+
+            cat <<EOF > $out/lib/${gleamToml.name}/main.mjs
+            import { main } from "./${gleamToml.name}.mjs";
+            main();
+            EOF
+
+            cat <<EOF > $out/bin/${gleamToml.name}
+            #!/usr/bin/env sh
+            ${nodejs}/bin/node $out/lib/${gleamToml.name}/main.mjs "\$@"
             EOF
             chmod +x $out/bin/${gleamToml.name}
 

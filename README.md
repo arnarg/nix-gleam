@@ -6,7 +6,7 @@ Gleam will create a `manifest.toml` file for every project which acts as a lock 
 
 ## Usage
 
-Currently there is only 1 builder which builds a gleam application that will be run by `erl` (like `gleam export erlang-shipment`).
+Currently there is only 1 builder which builds a gleam application and supports both `erlang` and `javascript` target (but hard-coded to use nodejs runtime).
 
 ### buildGleamApplication
 
@@ -46,6 +46,10 @@ In `flake.nix`:
         # Default is "erlang" if nothing is specified but
         # this can also be overwritten here too:
         # target = "javascript";
+
+        # Erlang package can be overridden but defaults to
+        # `pkgs.erlang`.
+        # erlangPackage = pkgs.erlang_nox;
 
         src = ./.;
       };

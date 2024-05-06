@@ -15,6 +15,7 @@ in {
   buildGleamApplication = {
     src,
     nativeBuildInputs ? [],
+    erlangPackage ? erlang,
     ...
   } @ attrs: let
     # gleam.toml contains an application name and version.
@@ -98,7 +99,7 @@ in {
       // lib.optionalAttrs (buildTarget == "erlang") {
         nativeBuildInputs =
           defaultNativeBuildInputs
-          ++ [erlang rebar3]
+          ++ [erlangPackage rebar3]
           ++ (lib.optional needsElixir [elixir])
           ++ nativeBuildInputs;
 
@@ -126,7 +127,7 @@ in {
 
             cat <<EOF > $out/bin/${gleamToml.name}
             #!/usr/bin/env sh
-            ${erlang}/bin/erl \
+            ${erlangPackage}/bin/erl \
               -pa $out/lib/*/ebin \
               -eval "${gleamToml.name}@@main:run(${gleamToml.name})" \
               -noshell \

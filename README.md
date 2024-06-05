@@ -57,3 +57,99 @@ In `flake.nix`:
   );
 }
 ````
+
+## Examples
+
+### Monorepo
+
+In a monorepo example where sub-directories `backend`, `frontend` and `shared` are all different gleam packages where `backend` and `frontend` have a local path dependency `shared`, the following `flake.nix` can be used in the root of the monorepo.
+
+```nix
+{
+  description = "My gleam monorepo";
+
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs.nix-gleam.url = "github:arnarg/nix-gleam";
+
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+    nix-gleam,
+  }: (
+    flake-utils.lib.eachDefaultSystem
+    (system: let
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [
+          nix-gleam.overlays.default
+        ];
+      };
+    in {
+      packages = {
+        # Backend application
+        backend = pkgs.buildGleamApplication {
+          src = ./backend;
+          # Inform the builder to use `./shared`
+          # as a local package.
+          localPackages = [./shared];
+        };
+        # Frontend application
+        frontend = pkgs.buildGleamApplication {
+          src = ./frontend;
+          # Inform the builder to use `./shared`
+          # as a local package.
+          localPackages = [./shared];
+        };
+      };
+    })
+  );
+}
+```
+
+### Rebar3 plugins
+
+Some dependencies will take in erlang dependencies that might need rebar3 plugins to build and will produce build errors like:
+```
+Errors loading plugin pc. Run rebar3 with DEBUG=1 set to see errors.
+```
+
+In such cases the parameter `rebar3Plugins` can be used.
+
+```nix
+{
+  description = "My gleam application";
+
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs.nix-gleam.url = "github:arnarg/nix-gleam";
+
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+    nix-gleam,
+  }: (
+    flake-utils.lib.eachDefaultSystem
+    (system: let
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [
+          nix-gleam.overlays.default
+        ];
+      };
+    in {
+      packages.default = pkgs.buildGleamApplication {
+        src = ./.;
+
+        # Adds a list of plugins to rebar3 which
+        # will be used by the builder.
+        rebar3Plugins = with pkgs.beamPackages; [
+          pc
+        ];
+      };
+    })
+  );
+}
+```

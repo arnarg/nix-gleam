@@ -5,6 +5,7 @@
   gleam,
   erlang,
   rebar3,
+  rebar3WithPlugins,
   elixir,
   beamPackages,
   rsync,
@@ -15,7 +16,9 @@ in {
   buildGleamApplication = {
     src,
     nativeBuildInputs ? [],
+    localPackages ? [],
     erlangPackage ? erlang,
+    rebar3Plugins ? [],
     ...
   } @ attrs: let
     # gleam.toml contains an application name and version.
@@ -48,7 +51,23 @@ in {
           sha256 = p.outer_checksum;
         };
       })
-      manifestToml.packages;
+      (lib.lists.filter (p: p.source == "hex") manifestToml.packages);
+
+    localDerivs = lib.mergeAttrsList (map (
+        p: let
+          name = (fromTOML (readFile (p + "/gleam.toml"))).name;
+        in {
+          "${name}" = p;
+        }
+      )
+      localPackages);
+
+    localDeps = map (
+      p: {
+        inherit (p) name path;
+        newPath = localDerivs.${p.name};
+      }
+    ) (lib.lists.filter (p: p.source == "local") manifestToml.packages);
 
     # Check if elixir is needed in nativeBuildInputs by checking if "mix" is in
     # required build_tools.
@@ -65,6 +84,15 @@ in {
         version = attrs.version or gleamToml.version;
 
         src = lib.cleanSource attrs.src;
+
+        postPatch =
+          lib.concatMapStringsSep "\n" (
+            p: ''
+              sed -i -e 's|${p.path}|${p.newPath}|g' manifest.toml
+              sed -i -e 's|${p.path}|${p.newPath}|g' gleam.toml
+            ''
+          )
+          localDeps;
 
         # Here we must copy the dependencies into the right spot and
         # create a packages.toml file so the gleam compiler does not
@@ -99,7 +127,14 @@ in {
       // lib.optionalAttrs (buildTarget == "erlang") {
         nativeBuildInputs =
           defaultNativeBuildInputs
-          ++ [erlangPackage rebar3]
+          ++ [
+            erlangPackage
+            (
+              if (builtins.length rebar3Plugins > 0)
+              then rebar3WithPlugins {plugins = rebar3Plugins;}
+              else rebar3
+            )
+          ]
           ++ (lib.optional needsElixir [elixir])
           ++ nativeBuildInputs;
 
@@ -108,6 +143,8 @@ in {
           attrs.buildPhase
           or ''
             runHook prebuild
+
+            export REBAR_CACHE_DIR="$TMP/.rebar-cache"
 
             gleam export erlang-shipment
 

@@ -115,7 +115,7 @@ Some dependencies will take in erlang dependencies that might need rebar3 plugin
 Errors loading plugin pc. Run rebar3 with DEBUG=1 set to see errors.
 ```
 
-In such cases the parameter `rebar3Plugins` can be used.
+In such cases rebar3 package used in the build can be overwritten with `rebar3Package`.
 
 ```nix
 {
@@ -143,11 +143,11 @@ In such cases the parameter `rebar3Plugins` can be used.
       packages.default = pkgs.buildGleamApplication {
         src = ./.;
 
-        # Adds a list of plugins to rebar3 which
-        # will be used by the builder.
-        rebar3Plugins = with pkgs.beamPackages; [
-          pc
-        ];
+        # Overrides the rebar3 package used, adding
+        # plugins using `rebar3WithPlugins`.
+        rebar3Package = pkgs.rebar3WithPlugins {
+          plugins = with pkgs.beamPackages; [pc];
+        };
       };
     })
   );

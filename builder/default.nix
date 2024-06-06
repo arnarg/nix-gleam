@@ -5,7 +5,6 @@
   gleam,
   erlang,
   rebar3,
-  rebar3WithPlugins,
   elixir,
   beamPackages,
   rsync,
@@ -18,7 +17,7 @@ in {
     nativeBuildInputs ? [],
     localPackages ? [],
     erlangPackage ? erlang,
-    rebar3Plugins ? [],
+    rebar3Package ? rebar3,
     ...
   } @ attrs: let
     # gleam.toml contains an application name and version.
@@ -127,14 +126,7 @@ in {
       // lib.optionalAttrs (buildTarget == "erlang") {
         nativeBuildInputs =
           defaultNativeBuildInputs
-          ++ [
-            erlangPackage
-            (
-              if (builtins.length rebar3Plugins > 0)
-              then rebar3WithPlugins {plugins = rebar3Plugins;}
-              else rebar3
-            )
-          ]
+          ++ [erlangPackage rebar3Package]
           ++ (lib.optional needsElixir [elixir])
           ++ nativeBuildInputs;
 

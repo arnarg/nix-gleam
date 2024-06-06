@@ -39,6 +39,9 @@ in {
           manifestToml.packages)
       );
 
+    # Helper function to filter manifest.toml packages
+    filterPackagesBySource = type: packages: lib.lists.filter (p: p.source == type) packages;
+
     # Fetch all dependencies
     depsDerivs =
       map
@@ -50,23 +53,30 @@ in {
           sha256 = p.outer_checksum;
         };
       })
-      (lib.lists.filter (p: p.source == "hex") manifestToml.packages);
+      (filterPackagesBySource "hex" manifestToml.packages);
 
-    localDerivs = lib.mergeAttrsList (map (
-        p: let
-          name = (fromTOML (readFile (p + "/gleam.toml"))).name;
-        in {
-          "${name}" = p;
+    # Find replacement paths for `local` package dependencies
+    # from `localPackages` list.
+    localDeps = let
+      # Build a lookup attrset for local packages.
+      localDerivs = lib.mergeAttrsList (map (
+          p: let
+            name = (fromTOML (readFile (p + "/gleam.toml"))).name;
+          in {
+            "${name}" = p;
+          }
+        )
+        localPackages);
+    in
+      map (
+        p: {
+          inherit (p) name path;
+          newPath =
+            if localDerivs ? "${p.name}"
+            then localDerivs.${p.name}
+            else builtins.throw "Local dependency \"${p.name}\" not found in `localPackages`.";
         }
-      )
-      localPackages);
-
-    localDeps = map (
-      p: {
-        inherit (p) name path;
-        newPath = localDerivs.${p.name};
-      }
-    ) (lib.lists.filter (p: p.source == "local") manifestToml.packages);
+      ) (filterPackagesBySource "local" manifestToml.packages);
 
     # Check if elixir is needed in nativeBuildInputs by checking if "mix" is in
     # required build_tools.

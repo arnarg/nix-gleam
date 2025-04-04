@@ -21,11 +21,11 @@ in {
     ...
   } @ attrs: let
     # gleam.toml contains an application name and version.
-    gleamToml = fromTOML (readFile (src + "/gleam.toml"));
+    gleamToml = lib.importTOML (src + "/gleam.toml");
 
     # manifest.toml contains a list of required packages including a sha256 checksum
     # that can be used by nix fetchHex fetcher.
-    manifestToml = fromTOML (readFile (src + "/manifest.toml"));
+    manifestToml = lib.importTOML (src + "/manifest.toml");
 
     # Specify which target to build for.
     buildTarget = attrs.target or gleamToml.target or "erlang";
@@ -93,15 +93,6 @@ in {
         version = attrs.version or gleamToml.version;
 
         src = lib.cleanSource attrs.src;
-
-        postPatch =
-          lib.concatMapStringsSep "\n" (
-            p: ''
-              sed -i -e 's|${p.path}|${p.newPath}|g' manifest.toml
-              sed -i -e 's|${p.path}|${p.newPath}|g' gleam.toml
-            ''
-          )
-          localDeps;
 
         # Here we must copy the dependencies into the right spot and
         # create a packages.toml file so the gleam compiler does not

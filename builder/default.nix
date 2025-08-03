@@ -47,10 +47,10 @@ in {
       map
       (p: {
         name = p.name;
-        derivation = fetchHex {
-          inherit (p) version;
-          pkg = p.name;
-          sha256 = p.outer_checksum;
+        derivation = fetchGit {
+          url = p.repo;
+          rev = p.commit;
+          # sha256 = p.outer_checksum;
         };
       })
       (filterPackagesBySource "git" manifestToml.packages);
@@ -126,7 +126,7 @@ in {
               lib.concatStringsSep "\n" (
                 lib.forEach gitDerivs (
                   d: ''
-                    git clone ${d.repo} --revision=${d.commit}
+                    rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r ${d.derivation}/* build/packages/${d.name}/
                   ''
                 )
               )

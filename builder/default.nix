@@ -107,6 +107,15 @@ in {
 
         src = lib.cleanSource attrs.src;
 
+        postPatch =
+          lib.concatMapStringsSep "\n" (
+            p: ''
+              sed -i -e 's|${p.path}|${p.newPath}|g' manifest.toml
+              sed -i -e 's|${p.path}|${p.newPath}|g' gleam.toml
+            ''
+          )
+          localDeps;
+
         # Here we must copy the dependencies into the right spot and
         # create a packages.toml file so the gleam compiler does not
         # attempt to pull the dependencies from the internet.

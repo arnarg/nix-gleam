@@ -50,7 +50,6 @@ in {
         derivation = fetchGit {
           url = p.repo;
           rev = p.commit;
-          # sha256 = p.outer_checksum;
         };
       })
       (filterPackagesBySource "git" manifestToml.packages);

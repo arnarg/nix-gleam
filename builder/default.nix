@@ -1,6 +1,7 @@
 {
   stdenv,
   lib,
+  git,
   fetchHex,
   gleam,
   erlang,
@@ -21,11 +22,11 @@ in {
     ...
   } @ attrs: let
     # gleam.toml contains an application name and version.
-    gleamToml = fromTOML (readFile (src + "/gleam.toml"));
+    gleamToml = lib.importTOML (src + "/gleam.toml");
 
     # manifest.toml contains a list of required packages including a sha256 checksum
     # that can be used by nix fetchHex fetcher.
-    manifestToml = fromTOML (readFile (src + "/manifest.toml"));
+    manifestToml = lib.importTOML (src + "/manifest.toml");
 
     # Specify which target to build for.
     buildTarget = attrs.target or gleamToml.target or "erlang";
@@ -41,6 +42,17 @@ in {
 
     # Helper function to filter manifest.toml packages
     filterPackagesBySource = type: packages: lib.lists.filter (p: p.source == type) packages;
+
+    gitDerivs =
+      map
+      (p: {
+        name = p.name;
+        derivation = fetchGit {
+          url = p.repo;
+          rev = p.commit;
+        };
+      })
+      (filterPackagesBySource "git" manifestToml.packages);
 
     # Fetch all dependencies
     depsDerivs =
@@ -84,7 +96,7 @@ in {
     needsElixir = with lib; any isElixirProject manifestToml.packages;
 
     # nativeBuildInputs needed for both targets.
-    defaultNativeBuildInputs = [gleam beamPackages.hex rsync];
+    defaultNativeBuildInputs = [gleam beamPackages.hex rsync git];
   in
     # Base common mkDerivation attributes
     stdenv.mkDerivation (attrs
@@ -117,6 +129,16 @@ in {
             cat <<EOF > build/packages/packages.toml
             ${packagesTOML}
             EOF
+
+            ${
+              lib.concatStringsSep "\n" (
+                lib.forEach gitDerivs (
+                  d: ''
+                    rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r ${d.derivation}/* build/packages/${d.name}/
+                  ''
+                )
+              )
+            }
 
             # Copy all the dependencies into place
             ${lib.concatStringsSep "\n" (

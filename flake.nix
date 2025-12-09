@@ -1,17 +1,20 @@
 {
   description = "nix-gleam - nix builder for gleam applications";
 
-  inputs.nixpkgs = "github:nixos/nixpkgs/nixos-unstable";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
   outputs =
     { self, nixpkgs }:
     let
       inherit (nixpkgs) lib;
 
-      forEachPkgs = f: lib.genAttrs lib.systems.flakeExposed (system: f nixpkgs.legacyPackage.${system});
+      forEachPkgs = f: lib.genAttrs lib.systems.flakeExposed (system: f nixpkgs.legacyPackages.${system});
     in
     {
-      packages = forEachPkgs (pkgs: pkgs.callPackage ./builder { });
+      legacyPackages = forEachPkgs (pkgs:
+        let builder = pkgs.callPackage ./builder { };
+        in { inherit (builder) buildGleamApplication; }
+      );
       overlays.default = import ./overlay.nix;
     };
 }

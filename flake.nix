@@ -11,9 +11,14 @@
       forEachPkgs = f: lib.genAttrs lib.systems.flakeExposed (system: f nixpkgs.legacyPackages.${system});
     in
     {
-      legacyPackages = forEachPkgs (pkgs:
-        let builder = pkgs.callPackage ./builder { };
-        in { inherit (builder) buildGleamApplication; }
+      packages = forEachPkgs (
+        pkgs:
+        let
+          builder = pkgs.callPackage ./builder { };
+        in
+        {
+          inherit (builder) buildGleamApplication;
+        }
       );
       overlays.default = import ./overlay.nix;
     };

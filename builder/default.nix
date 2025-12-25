@@ -109,8 +109,8 @@ in {
         postPatch =
           lib.concatMapStringsSep "\n" (
             p: ''
-              sed -i -e 's|${p.path}|${p.newPath}|g' manifest.toml
-              sed -i -e 's|${p.path}|${p.newPath}|g' gleam.toml
+              sed -i -e 's|"${p.path}"|"${p.newPath}"|g' manifest.toml
+              sed -i -e 's|"${p.path}"|"${p.newPath}"|g' gleam.toml
             ''
           )
           localDeps;

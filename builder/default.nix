@@ -38,6 +38,19 @@ in {
           manifestToml.packages)
       );
 
+    # Gleam records a git dependency twice over: once in `[packages]` with its
+    # version, and once in a `[git.<name>]` table naming the commit it was taken
+    # from. Without the second, Gleam finds no record of where the package came
+    # from, decides it was never downloaded, and downloads it -- which cannot
+    # work in the sandbox. The commits are in the manifest, so write them out.
+    gitRecordsTOML = with lib;
+      concatMapStringsSep "\n" (
+        p: ''
+          [git.${p.name}]
+          commit = "${p.commit}"
+        ''
+      ) (filterPackagesBySource "git" manifestToml.packages);
+
     # Helper function to filter manifest.toml packages
     filterPackagesBySource = type: packages: lib.lists.filter (p: p.source == type) packages;
 
@@ -71,9 +84,10 @@ in {
       # Build a lookup attrset for local packages.
       localDerivs = lib.mergeAttrsList (map (
           p: let
-            name = (fromTOML (readFile (p + "/gleam.toml"))).name;
+            localSrc = p;
+            name = (fromTOML (readFile (localSrc + "/gleam.toml"))).name;
           in {
-            "${name}" = p;
+            "${name}" = localSrc;
           }
         )
         localPackages);
@@ -81,10 +95,12 @@ in {
       map (
         p: {
           inherit (p) name path;
-          newPath =
+          localSrc =
             if localDerivs ? "${p.name}"
             then localDerivs.${p.name}
             else builtins.throw "Local dependency \"${p.name}\" not found in `localPackages`.";
+          # Keep local packages in a writable location during build.
+          newPath = p.path;
         }
       ) (filterPackagesBySource "local" manifestToml.packages);
 
@@ -104,15 +120,6 @@ in {
 
         src = lib.cleanSource attrs.src;
 
-        postPatch =
-          lib.concatMapStringsSep "\n" (
-            p: ''
-              sed -i -e 's|"${p.path}"|"${p.newPath}"|g' manifest.toml
-              sed -i -e 's|"${p.path}"|"${p.newPath}"|g' gleam.toml
-            ''
-          )
-          localDeps;
-
         # Here we must copy the dependencies into the right spot and
         # create a packages.toml file so the gleam compiler does not
         # attempt to pull the dependencies from the internet.
@@ -127,6 +134,32 @@ in {
             cat <<EOF > build/packages/packages.toml
             ${packagesTOML}
             EOF
+
+            # Record which commit each git dependency was taken from. This has to
+            # happen before the local package caches are primed below, since those
+            # are copies of this file.
+            ${lib.optionalString (gitRecordsTOML != "") ''
+              cat <<EOF >> build/packages/packages.toml
+              ${gitRecordsTOML}
+              EOF
+            ''}
+
+            ${
+              lib.concatStringsSep "\n" (
+                lib.forEach localDeps (
+                  d: ''
+                    # Gleam writes build output into the dependency's own source
+                    # directory, so it cannot be left pointing at the read-only
+                    # store path. Stage it somewhere writable first, keeping the
+                    # relative path the manifest recorded so that the paths in
+                    # gleam.toml still resolve.
+                    mkdir -p "$(dirname "${d.newPath}")"
+                    mkdir -p "${d.newPath}"
+                    rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r ${d.localSrc}/* "${d.newPath}/"
+                  ''
+                )
+              )
+            }
 
             ${
               lib.concatStringsSep "\n" (
@@ -149,13 +182,32 @@ in {
               )
             )}
 
-            # To prevent dependency resolution in Gleam 1.15+, local packages
+# To prevent dependency resolution in Gleam 1.15+, local packages
             # need to have their fingerprint up-to-date.
             ${lib.concatStringsSep "\n" (
               lib.forEach localDeps (d: ''
                 printf "%u" 0x$(xxhsum -H3 ${d.newPath}/gleam.toml | cut -d' ' -f1 | cut -d '_' -f2) > build/packages/${d.name}.config_fingerprint
               '')
             )}
+
+            # Prime local package dependency caches so they do not try to fetch.
+            #
+            # Gleam compiles a path dependency inside that dependency's own
+            # directory, using the package cache found there. Left empty, that
+            # cache makes Gleam re-resolve -- and re-download -- every one of the
+            # dependency's own dependencies. Seed it from the cache prepared above
+            # instead, which is also how the local packages get the git records.
+            ${
+              lib.concatStringsSep "\n" (
+                lib.forEach localDeps (
+                  d: ''
+                    mkdir -p "${d.newPath}/build/packages"
+                    cp build/packages/packages.toml "${d.newPath}/build/packages/packages.toml"
+                    rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r build/packages/* "${d.newPath}/build/packages/"
+                  ''
+                )
+              )
+            }
 
             runHook postConfigure
           '';

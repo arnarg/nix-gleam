@@ -166,7 +166,7 @@ in {
         buildPhase =
           attrs.buildPhase
           or ''
-            runHook prebuild
+            runHook preBuild
 
             export REBAR_CACHE_DIR="$TMP/.rebar-cache"
 

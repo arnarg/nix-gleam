@@ -73,9 +73,10 @@ in {
       # Build a lookup attrset for local packages.
       localDerivs = lib.mergeAttrsList (map (
           p: let
-            name = (fromTOML (readFile (p + "/gleam.toml"))).name;
+            localSrc = p;
+            name = (fromTOML (readFile (localSrc + "/gleam.toml"))).name;
           in {
-            "${name}" = p;
+            "${name}" = localSrc;
           }
         )
         localPackages);
@@ -83,10 +84,12 @@ in {
       map (
         p: {
           inherit (p) name path;
-          newPath =
+          localSrc =
             if localDerivs ? "${p.name}"
             then localDerivs.${p.name}
             else builtins.throw "Local dependency \"${p.name}\" not found in `localPackages`.";
+          # Keep local packages in a writable location during build.
+          newPath = p.path;
         }
       ) (filterPackagesBySource "local" manifestToml.packages);
 
@@ -106,14 +109,7 @@ in {
 
         src = lib.cleanSource attrs.src;
 
-        postPatch =
-          lib.concatMapStringsSep "\n" (
-            p: ''
-              sed -i -e 's|"${p.path}"|"${p.newPath}"|g' manifest.toml
-              sed -i -e 's|"${p.path}"|"${p.newPath}"|g' gleam.toml
-            ''
-          )
-          localDeps;
+        postPatch = attrs.postPatch or null;
 
         # Here we must copy the dependencies into the right spot and
         # create a packages.toml file so the gleam compiler does not
@@ -129,6 +125,22 @@ in {
             cat <<EOF > build/packages/packages.toml
             ${packagesTOML}
             EOF
+
+            ${
+              lib.concatStringsSep "\n" (
+                lib.forEach localDeps (
+                  d: ''
+                    mkdir -p "$(dirname "${d.newPath}")"
+                    mkdir -p "${d.newPath}"
+                    rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r ${d.localSrc}/* "${d.newPath}/"
+
+                    # A local dependency fingerprint file newer than gleam.toml
+                    # avoids forcing dependency resolution in Gleam.
+                    echo "0" > "build/packages/${d.name}.config_fingerprint"
+                  ''
+                )
+              )
+            }
 
             ${
               lib.concatStringsSep "\n" (
@@ -150,6 +162,19 @@ in {
                 ''
               )
             )}
+
+            # Prime local package dependency caches so they do not try to fetch.
+            ${
+              lib.concatStringsSep "\n" (
+                lib.forEach localDeps (
+                  d: ''
+                    mkdir -p "${d.newPath}/build/packages"
+                    cp build/packages/packages.toml "${d.newPath}/build/packages/packages.toml"
+                    rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r build/packages/* "${d.newPath}/build/packages/"
+                  ''
+                )
+              )
+            }
 
             runHook postConfigure
           '';

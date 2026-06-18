@@ -2,6 +2,7 @@
   stdenv,
   lib,
   git,
+  xxhash,
   fetchHex,
   gleam,
   erlang,
@@ -96,7 +97,7 @@ in {
     needsElixir = with lib; any isElixirProject manifestToml.packages;
 
     # nativeBuildInputs needed for both targets.
-    defaultNativeBuildInputs = [gleam beamPackages.hex rsync git];
+    defaultNativeBuildInputs = [gleam beamPackages.hex rsync git xxhash];
   in
     # Base common mkDerivation attributes
     stdenv.mkDerivation (attrs
@@ -149,6 +150,14 @@ in {
                   rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r ${d.derivation}/* build/packages/${d.name}/
                 ''
               )
+            )}
+
+            # To prevent dependency resolution in Gleam 1.15+, local packages
+            # need to have their fingerprint up-to-date.
+            ${lib.concatStringsSep "\n" (
+              lib.forEach localDeps (d: ''
+                printf "%u" 0x$(xxhsum -H3 ${d.newPath}/gleam.toml | cut -d' ' -f1 | cut -d '_' -f2) > build/packages/${d.name}.config_fingerprint
+              '')
             )}
 
             runHook postConfigure

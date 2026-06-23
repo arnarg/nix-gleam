@@ -8,18 +8,27 @@
     let
       inherit (nixpkgs) lib;
 
-      forEachPkgs = f: lib.genAttrs lib.systems.flakeExposed (system: f nixpkgs.legacyPackages.${system});
+      forEachPkgs =
+        f:
+        lib.genAttrs lib.systems.flakeExposed (
+          system:
+          f (
+            import nixpkgs {
+              localSystem.system = system;
+              overlays = [ self.overlays.default ];
+            }
+          )
+        );
     in
     {
-      packages = forEachPkgs (
-        pkgs:
-        let
-          builder = pkgs.callPackage ./builder { };
-        in
-        {
-          inherit (builder) buildGleamApplication;
-        }
-      );
+      packages = forEachPkgs (pkgs: {
+        inherit (pkgs) buildGleamApplication;
+      });
+
       overlays.default = import ./overlay.nix;
+
+      checks = forEachPkgs (
+        pkgs: lib.filterAttrs (_: d: lib.isDerivation d) (pkgs.callPackage ./tests { })
+      );
     };
 }

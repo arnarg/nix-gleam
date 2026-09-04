@@ -46,8 +46,8 @@ In `flake.nix`:
           # target = "javascript";
 
           # Erlang package can be overridden but defaults to
-          # `pkgs.erlang`.
-          # erlangPackage = pkgs.erlang_nox;
+          # `pkgs.beamPackages.erlang`.
+          # erlangPackage = pkgs.beamMinimal29Packages.erlang;
 
           src = ./.;
         };
@@ -149,7 +149,7 @@ In such cases rebar3 package used in the build can be overwritten with `rebar3Pa
 
           # Overrides the rebar3 package used, adding
           # plugins using `rebar3WithPlugins`.
-          rebar3Package = pkgs.rebar3WithPlugins {
+          rebar3Package = pkgs.beamPackages.rebar3WithPlugins {
             plugins = with pkgs.beamPackages; [pc];
           };
         };

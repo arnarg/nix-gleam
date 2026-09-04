@@ -5,9 +5,6 @@
   xxhash,
   fetchHex,
   gleam,
-  erlang,
-  rebar3,
-  elixir,
   beamPackages,
   rsync,
   nodejs,
@@ -18,8 +15,8 @@ in {
     src,
     nativeBuildInputs ? [],
     localPackages ? [],
-    erlangPackage ? erlang,
-    rebar3Package ? rebar3,
+    erlangPackage ? beamPackages.erlang,
+    rebar3Package ? beamPackages.rebar3,
     ...
   } @ attrs: let
     # gleam.toml contains an application name and version.
@@ -168,7 +165,7 @@ in {
         nativeBuildInputs =
           defaultNativeBuildInputs
           ++ [erlangPackage rebar3Package]
-          ++ (lib.optional needsElixir [elixir])
+          ++ (lib.optional needsElixir [beamPackages.elixir])
           ++ nativeBuildInputs;
 
         # The gleam compiler has a nice export function for erlang shipment.

@@ -30,25 +30,26 @@ in {
     buildTarget = attrs.target or gleamToml.target or "erlang";
 
     # Generates a packages.toml expected by gleam compiler.
+    #
+    # Gleam records a git dependency twice over: once in `[packages]` with its
+    # version, and once in a `[git.<name>]` table naming the commit it was taken
+    # from. Without the second, Gleam finds no record of where the package came
+    # from, decides it was never downloaded, and downloads it -- which cannot
+    # work in the sandbox. The commits are in the manifest, so write them out too.
     packagesTOML = with lib;
       concatStringsSep "\n" (
         ["[packages]"]
         ++ (map
           (p: "${p.name} = \"${p.version}\"")
           manifestToml.packages)
+        ++ (lib.optional (gitRecordsTOML != "") "")
+        ++ (lib.optional (gitRecordsTOML != "") gitRecordsTOML)
       );
 
-    # Gleam records a git dependency twice over: once in `[packages]` with its
-    # version, and once in a `[git.<name>]` table naming the commit it was taken
-    # from. Without the second, Gleam finds no record of where the package came
-    # from, decides it was never downloaded, and downloads it -- which cannot
-    # work in the sandbox. The commits are in the manifest, so write them out.
     gitRecordsTOML = with lib;
       concatMapStringsSep "\n" (
-        p: ''
-          [git.${p.name}]
-          commit = "${p.commit}"
-        ''
+        p: ''[git.${p.name}]
+commit = "${p.commit}"''
       ) (filterPackagesBySource "git" manifestToml.packages);
 
     # Helper function to filter manifest.toml packages
@@ -135,15 +136,6 @@ in {
             ${packagesTOML}
             EOF
 
-            # Record which commit each git dependency was taken from. This has to
-            # happen before the local package caches are primed below, since those
-            # are copies of this file.
-            ${lib.optionalString (gitRecordsTOML != "") ''
-              cat <<EOF >> build/packages/packages.toml
-              ${gitRecordsTOML}
-              EOF
-            ''}
-
             ${
               lib.concatStringsSep "\n" (
                 lib.forEach localDeps (
@@ -182,7 +174,7 @@ in {
               )
             )}
 
-# To prevent dependency resolution in Gleam 1.15+, local packages
+            # To prevent dependency resolution in Gleam 1.15+, local packages
             # need to have their fingerprint up-to-date.
             ${lib.concatStringsSep "\n" (
               lib.forEach localDeps (d: ''

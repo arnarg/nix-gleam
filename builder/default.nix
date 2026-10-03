@@ -30,12 +30,6 @@ in {
     buildTarget = attrs.target or gleamToml.target or "erlang";
 
     # Generates a packages.toml expected by gleam compiler.
-    #
-    # Gleam records a git dependency twice over: once in `[packages]` with its
-    # version, and once in a `[git.<name>]` table naming the commit it was taken
-    # from. Without the second, Gleam finds no record of where the package came
-    # from, decides it was never downloaded, and downloads it -- which cannot
-    # work in the sandbox. The commits are in the manifest, so write them out too.
     packagesTOML = with lib;
       concatStringsSep "\n" (
         ["[packages]"]
@@ -46,10 +40,12 @@ in {
         ++ (lib.optional (gitRecordsTOML != "") gitRecordsTOML)
       );
 
+    # Gleam records a git dependency twice: once in `[packages]`,
+    # and once in a `[git.<name>]` table with the commit.
+    # Without the second, Gleam will try to download it.
     gitRecordsTOML = with lib;
       concatMapStringsSep "\n" (
-        p: ''[git.${p.name}]
-commit = "${p.commit}"''
+        p: "[git.${p.name}]\ncommit = \"${p.commit}\""
       ) (filterPackagesBySource "git" manifestToml.packages);
 
     # Helper function to filter manifest.toml packages
@@ -85,10 +81,9 @@ commit = "${p.commit}"''
       # Build a lookup attrset for local packages.
       localDerivs = lib.mergeAttrsList (map (
           p: let
-            localSrc = p;
-            name = (fromTOML (readFile (localSrc + "/gleam.toml"))).name;
+            name = (fromTOML (readFile (p + "/gleam.toml"))).name;
           in {
-            "${name}" = localSrc;
+            "${name}" = p;
           }
         )
         localPackages);
@@ -99,7 +94,7 @@ commit = "${p.commit}"''
           localSrc =
             if localDerivs ? "${p.name}"
             then localDerivs.${p.name}
-            else builtins.throw "Local dependency \"${p.name}\" not found in `localPackages`.";
+            else throw "Local dependency \"${p.name}\" not found in `localPackages`.";
           # Keep local packages in a writable location during build.
           newPath = p.path;
         }
@@ -137,15 +132,11 @@ commit = "${p.commit}"''
             EOF
 
             ${
+              # Gleam writes build output into the local dependency's own source
+              # directory, so it cannot be the read-only store path.
               lib.concatStringsSep "\n" (
                 lib.forEach localDeps (
                   d: ''
-                    # Gleam writes build output into the dependency's own source
-                    # directory, so it cannot be left pointing at the read-only
-                    # store path. Stage it somewhere writable first, keeping the
-                    # relative path the manifest recorded so that the paths in
-                    # gleam.toml still resolve.
-                    mkdir -p "$(dirname "${d.newPath}")"
                     mkdir -p "${d.newPath}"
                     rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r ${d.localSrc}/* "${d.newPath}/"
                   ''
@@ -182,14 +173,11 @@ commit = "${p.commit}"''
               '')
             )}
 
-            # Prime local package dependency caches so they do not try to fetch.
-            #
-            # Gleam compiles a path dependency inside that dependency's own
-            # directory, using the package cache found there. Left empty, that
-            # cache makes Gleam re-resolve -- and re-download -- every one of the
-            # dependency's own dependencies. Seed it from the cache prepared above
-            # instead, which is also how the local packages get the git records.
             ${
+              # Prime local package dependency caches so they do not try to fetch.
+              #
+              # Gleam compiles a local dependency inside that dependency's own
+              # directory, using the package cache found there.
               lib.concatStringsSep "\n" (
                 lib.forEach localDeps (
                   d: ''

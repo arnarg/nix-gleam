@@ -197,7 +197,7 @@ in {
         nativeBuildInputs =
           defaultNativeBuildInputs
           ++ [erlangPackage rebar3Package]
-          ++ (lib.optional needsElixir [beamPackages.elixir])
+          ++ (lib.optional needsElixir beamPackages.elixir)
           ++ nativeBuildInputs;
 
         # The gleam compiler has a nice export function for erlang shipment.

@@ -36,7 +36,17 @@ in {
         ++ (map
           (p: "${p.name} = \"${p.version}\"")
           manifestToml.packages)
+        ++ (lib.optional (gitRecordsTOML != "") "")
+        ++ (lib.optional (gitRecordsTOML != "") gitRecordsTOML)
       );
+
+    # Gleam records a git dependency twice: once in `[packages]`,
+    # and once in a `[git.<name>]` table with the commit.
+    # Without the second, Gleam will try to download it.
+    gitRecordsTOML = with lib;
+      concatMapStringsSep "\n" (
+        p: "[git.${p.name}]\ncommit = \"${p.commit}\""
+      ) (filterPackagesBySource "git" manifestToml.packages);
 
     # Helper function to filter manifest.toml packages
     filterPackagesBySource = type: packages: lib.lists.filter (p: p.source == type) packages;
@@ -81,10 +91,12 @@ in {
       map (
         p: {
           inherit (p) name path;
-          newPath =
+          localSrc =
             if localDerivs ? "${p.name}"
             then localDerivs.${p.name}
-            else builtins.throw "Local dependency \"${p.name}\" not found in `localPackages`.";
+            else throw "Local dependency \"${p.name}\" not found in `localPackages`.";
+          # Keep local packages in a writable location during build.
+          newPath = p.path;
         }
       ) (filterPackagesBySource "local" manifestToml.packages);
 
@@ -104,15 +116,6 @@ in {
 
         src = lib.cleanSource attrs.src;
 
-        postPatch =
-          lib.concatMapStringsSep "\n" (
-            p: ''
-              sed -i -e 's|"${p.path}"|"${p.newPath}"|g' manifest.toml
-              sed -i -e 's|"${p.path}"|"${p.newPath}"|g' gleam.toml
-            ''
-          )
-          localDeps;
-
         # Here we must copy the dependencies into the right spot and
         # create a packages.toml file so the gleam compiler does not
         # attempt to pull the dependencies from the internet.
@@ -127,6 +130,19 @@ in {
             cat <<EOF > build/packages/packages.toml
             ${packagesTOML}
             EOF
+
+            ${
+              # Gleam writes build output into the local dependency's own source
+              # directory, so it cannot be the read-only store path.
+              lib.concatStringsSep "\n" (
+                lib.forEach localDeps (
+                  d: ''
+                    mkdir -p "${d.newPath}"
+                    rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r ${d.localSrc}/* "${d.newPath}/"
+                  ''
+                )
+              )
+            }
 
             ${
               lib.concatStringsSep "\n" (
@@ -157,6 +173,22 @@ in {
               '')
             )}
 
+            ${
+              # Prime local package dependency caches so they do not try to fetch.
+              #
+              # Gleam compiles a local dependency inside that dependency's own
+              # directory, using the package cache found there.
+              lib.concatStringsSep "\n" (
+                lib.forEach localDeps (
+                  d: ''
+                    mkdir -p "${d.newPath}/build/packages"
+                    cp build/packages/packages.toml "${d.newPath}/build/packages/packages.toml"
+                    rsync --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -r build/packages/* "${d.newPath}/build/packages/"
+                  ''
+                )
+              )
+            }
+
             runHook postConfigure
           '';
       }
@@ -165,7 +197,7 @@ in {
         nativeBuildInputs =
           defaultNativeBuildInputs
           ++ [erlangPackage rebar3Package]
-          ++ (lib.optional needsElixir [beamPackages.elixir])
+          ++ (lib.optional needsElixir beamPackages.elixir)
           ++ nativeBuildInputs;
 
         # The gleam compiler has a nice export function for erlang shipment.
